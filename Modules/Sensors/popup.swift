@@ -349,7 +349,7 @@ internal class ValueSensorView: NSStackView {
         if self.isToggleable {
             self.addTrackingArea(NSTrackingArea(
                 rect: NSRect(x: 0, y: 0, width: self.frame.width, height: 22),
-                options: [NSTrackingArea.Options.activeAlways, NSTrackingArea.Options.mouseEnteredAndExited, NSTrackingArea.Options.activeInActiveApp],
+                options: [.activeAlways, .mouseEnteredAndExited],
                 owner: self,
                 userInfo: nil
             ))
@@ -964,7 +964,7 @@ internal class FanView: NSStackView {
     private func startApprovalPolling() {
         self.approvalPollTimer?.invalidate()
         var elapsed: TimeInterval = 0
-        self.approvalPollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
+        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] timer in
             elapsed += 2
             if SMCHelper.shared.isInstalled {
                 timer.invalidate()
@@ -979,6 +979,8 @@ internal class FanView: NSStackView {
                 self?.approvalPollTimer = nil
             }
         }
+        self.approvalPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
     
     private func setupControls(_ isInstalled: Bool? = nil) {

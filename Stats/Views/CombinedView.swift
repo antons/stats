@@ -15,7 +15,7 @@ import Kit
 internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
     private var menuBarItem: NSStatusItem? = nil
     private var view: NSView = NSView(frame: NSRect(x: 0, y: 0, width: 0, height: Constants.Widget.height))
-    private var popup: PopupWindow? = nil
+    private var popup: PopupMenu? = nil
     
     private var status: Bool {
         Store.shared.bool(key: "CombinedModules", defaultValue: false)
@@ -52,7 +52,7 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
             }
         }
         
-        self.popup = PopupWindow(title: "Combined modules", module: .combined, view: Popup()) { _ in }
+        self.popup = PopupMenu(title: "Combined modules", module: .combined, view: Popup()) { _ in }
         
         if self.status {
             self.enable()
@@ -60,11 +60,13 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
         
         NotificationCenter.default.addObserver(self, selector: #selector(listenForOneView), name: .toggleOneView, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(listenForModuleRearrrange), name: .moduleRearrange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(listenForModuleRearrrange), name: .combinedModulesPopup, object: nil)
     }
     
     deinit {
         NotificationCenter.default.removeObserver(self, name: .toggleOneView, object: nil)
         NotificationCenter.default.removeObserver(self, name: .moduleRearrange, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .combinedModulesPopup, object: nil)
     }
     
     public func enable() {
@@ -86,6 +88,7 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
     }
     
     public func disable() {
+        self.popup?.hide()
         if let item = self.menuBarItem {
             NSStatusBar.system.removeStatusItem(item)
         }
@@ -94,6 +97,7 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
     
     private func recalculate() {
         guard self.status, self.menuBarItem != nil else { return }
+        self.menuBarItem?.menu = self.iconOnly || self.combinedModulesPopup ? self.popup : nil
         self.view.subviews.forEach({ $0.removeFromSuperview() })
         
         if self.iconOnly {
@@ -121,15 +125,8 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
         self.menuBarItem?.length = w
     }
     
-    // call when popup appear/disappear
-    private func visibilityCallback(_ state: Bool) {}
-    
     @objc private func handleClick() {
-        if self.iconOnly || self.combinedModulesPopup {
-            self.togglePopup()
-        } else {
-            self.openModulePopup()
-        }
+        self.openModulePopup()
     }
     
     private func openModulePopup() {
@@ -138,48 +135,12 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
         let visibleModules = self.activeModules.filter({ !$0.menuBar.activeWidgets.isEmpty })
         guard let module = visibleModules.last(where: { $0.menuBar.view.frame.minX <= location.x }) ?? visibleModules.first else { return }
         
-        var userInfo: [String: Any] = [
+        let userInfo: [String: Any] = [
             "module": module.name,
             "origin": window.frame.origin,
             "center": window.frame.width/2
         ]
-        let widgetLocation = module.menuBar.view.convert(location, from: self.view)
-        let widgets = module.menuBar.activeWidgets
-        if let widget = widgets.last(where: { $0.item.frame.minX <= widgetLocation.x }) ?? widgets.first {
-            userInfo["widget"] = widget.type
-        }
         NotificationCenter.default.post(name: .togglePopup, object: nil, userInfo: userInfo)
-    }
-    
-    private func togglePopup() {
-        guard let popup = self.popup, let item = self.menuBarItem, let window = item.button?.window else { return }
-        let openedWindows = NSApplication.shared.windows.filter{ $0 is NSPanel }
-        openedWindows.forEach{ $0.setIsVisible(false) }
-        
-        if popup.occlusionState.rawValue == 8192 {
-            NSApplication.shared.activate(ignoringOtherApps: true)
-            
-            popup.contentView?.invalidateIntrinsicContentSize()
-            
-            let windowCenter = popup.contentView!.intrinsicContentSize.width / 2
-            var x = window.frame.origin.x - windowCenter + window.frame.width/2
-            let y = window.frame.origin.y - popup.contentView!.intrinsicContentSize.height - 3
-            
-            let buttonPoint = NSPoint(x: window.frame.midX, y: window.frame.midY)
-            if let screen = NSScreen.screens.first(where: { $0.frame.contains(buttonPoint) }) ?? NSScreen.main {
-                if x + popup.contentView!.intrinsicContentSize.width > screen.frame.maxX {
-                    x = screen.frame.maxX - popup.contentView!.intrinsicContentSize.width - 3
-                }
-                if x < screen.frame.minX {
-                    x = screen.frame.minX + 3
-                }
-            }
-            
-            popup.setFrameOrigin(NSPoint(x: x, y: y))
-            popup.setIsVisible(true)
-        } else {
-            popup.setIsVisible(false)
-        }
     }
     
     @objc private func listenForOneView(_ notification: Notification) {
@@ -243,7 +204,7 @@ private class Popup: NSStackView, Popup_p {
     }
     
     deinit {
-        NotificationCenter.default.removeObserver(self, name: .toggleOneView, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .toggleModule, object: nil)
     }
     
     fileprivate func settings() -> NSView? { return nil }

@@ -95,7 +95,7 @@ open class Module {
     private var moduleType: ModuleType
     
     private var settingsView: Settings_v? = nil
-    private var popup: PopupWindow? = nil
+    private var popup: PopupMenu? = nil
     private var popupView: Popup_p? = nil
     private var notificationsView: NotificationsWrapper? = nil
     private var previewView: PreviewWrapper? = nil
@@ -168,7 +168,10 @@ open class Module {
             notificationsSettings: self.notificationsView
         )
         
-        self.popup = PopupWindow(title: self.config.name, module: self.moduleType, view: self.popupView, visibilityCallback: self.popupVisibilityCallback)
+        self.popup = PopupMenu(title: self.config.name, module: self.moduleType, view: self.popupView) { [weak self] state in
+            self?.popupVisibilityCallback(state)
+        }
+        self.menuBar.popupMenu = self.popup
     }
     
     deinit {
@@ -191,6 +194,7 @@ open class Module {
     // terminate function which call before app termination
     public func terminate() {
         self.willTerminate()
+        self.popup?.hide()
         self.readers.forEach{
             $0.stop()
             $0.terminate()
@@ -231,7 +235,7 @@ open class Module {
         self.popupVisible = false
         self.menuBar.disable()
         self.window?.setState(self.enabled)
-        self.popup?.setIsVisible(false)
+        self.popup?.hide()
         debug("Module disabled", log: self.log)
     }
     
@@ -319,41 +323,7 @@ open class Module {
             return
         }
         
-        let openedWindows = NSApplication.shared.windows.filter{ $0 is NSPanel }
-        openedWindows.forEach{ $0.setIsVisible(false) }
-        
-        var reopen: Bool = false
-        if let widget = notification.userInfo?["widget"] as? widget_t {
-            reopen = popup.openedBy != nil && popup.openedBy != widget
-            popup.openedBy = widget
-        }
-        
-        if popup.occlusionState.rawValue == 8192 || reopen {
-            NSApplication.shared.activate(ignoringOtherApps: true)
-            
-            popup.contentView?.invalidateIntrinsicContentSize()
-            
-            let windowCenter = popup.contentView!.intrinsicContentSize.width / 2
-            var x = buttonOrigin.x - windowCenter + buttonCenter
-            let y = buttonOrigin.y - popup.contentView!.intrinsicContentSize.height - 3
-            
-            let buttonPoint = NSPoint(x: buttonOrigin.x + buttonCenter, y: buttonOrigin.y)
-            if let screen = NSScreen.screens.first(where: { $0.frame.contains(buttonPoint) }) ?? NSScreen.main {
-                if x + popup.contentView!.intrinsicContentSize.width > screen.frame.maxX {
-                    x = screen.frame.maxX - popup.contentView!.intrinsicContentSize.width - 3
-                }
-                if x < screen.frame.minX {
-                    x = screen.frame.minX + 3
-                }
-            }
-            
-            popup.setFrameOrigin(NSPoint(x: x, y: y))
-            popup.setIsVisible(true)
-        } else {
-            popup.locked = false
-            popup.openedBy = nil
-            popup.setIsVisible(false)
-        }
+        popup.toggle(at: buttonOrigin, center: buttonCenter)
     }
     
     @objc private func listenForModuleToggle(_ notification: Notification) {
@@ -382,8 +352,8 @@ open class Module {
     }
     
     @objc private func listenForMouseDownInSettings() {
-        if let popup = self.popup, popup.isVisible && !popup.locked {
-            self.popup?.setIsVisible(false)
+        if let popup = self.popup, popup.isVisible && !popup.isDetached {
+            popup.hide()
         }
     }
     

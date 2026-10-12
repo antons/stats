@@ -256,6 +256,9 @@ public class SWidget {
     
     public var toggleCallback: ((widget_t, Bool) -> Void)? = nil
     public var sizeCallback: (() -> Void)? = nil
+    public var popupMenu: NSMenu? {
+        didSet { self.menuBarItem?.menu = self.popupMenu }
+    }
     
     public var log: NextLog {
         NextLog.shared.copy(category: self.module)
@@ -352,9 +355,7 @@ public class SWidget {
                     self.menuBarItem?.isVisible = true
                 }
                 
-                self.menuBarItem?.button?.target = self
-                self.menuBarItem?.button?.action = #selector(self.togglePopup)
-                self.menuBarItem?.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
+                self.menuBarItem?.menu = self.popupMenu
             })
         } else {
             let preservePosition = self.keepMenuBarPosition || Store.shared.bool(key: "CombinedModules", defaultValue: false)
@@ -368,22 +369,17 @@ public class SWidget {
             })
         }
     }
-    
-    @objc private func togglePopup() {
-        if let item = self.menuBarItem, let window = item.button?.window {
-            NotificationCenter.default.post(name: .togglePopup, object: nil, userInfo: [
-                "module": self.module,
-                "widget": self.type,
-                "origin": window.frame.origin,
-                "center": window.frame.width/2
-            ])
-        }
-    }
 }
 
 public class MenuBar {
     public var callback: (() -> Void)? = nil
     public var widgets: [SWidget] = []
+    public var popupMenu: NSMenu? {
+        didSet {
+            self.menuBarItem?.menu = self.popupMenu
+            self.widgets.forEach { $0.popupMenu = self.popupMenu }
+        }
+    }
     
     private var moduleName: String
     private var menuBarItem: NSStatusItem? = nil
@@ -436,6 +432,7 @@ public class MenuBar {
     }
     
     public func append(_ widget: SWidget) {
+        widget.popupMenu = self.popupMenu
         widget.toggleCallback = { [weak self] (type, state) in
             if let s = self, s.oneView {
                 if state, let w = s.activeWidgets.first(where: { $0.type == type }) {
@@ -497,9 +494,7 @@ public class MenuBar {
                 self.menuBarItem?.button?.addSubview(self.view)
                 self.menuBarItem?.button?.image = NSImage()
                 self.menuBarItem?.button?.toolTip = "\(localizedString(self.moduleName))"
-                self.menuBarItem?.button?.target = self
-                self.menuBarItem?.button?.action = #selector(self.togglePopup)
-                self.menuBarItem?.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
+                self.menuBarItem?.menu = self.popupMenu
                 
                 self.recalculateWidth()
             } else if let item = self.menuBarItem {
@@ -522,16 +517,6 @@ public class MenuBar {
         
         self.view.recalculate(self.sortedWidgets)
         self.callback?()
-    }
-    
-    @objc private func togglePopup() {
-        if let item = self.menuBarItem, let window = item.button?.window {
-            NotificationCenter.default.post(name: .togglePopup, object: nil, userInfo: [
-                "module": self.moduleName,
-                "origin": window.frame.origin,
-                "center": window.frame.width/2
-            ])
-        }
     }
     
     @objc private func listenForOneView(_ notification: Notification) {

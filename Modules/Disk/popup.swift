@@ -650,7 +650,7 @@ private class LegendView: NSView {
         
         let trackingArea = NSTrackingArea(
             rect: CGRect(x: 0, y: 0, width: self.frame.width, height: self.frame.height),
-            options: [NSTrackingArea.Options.activeAlways, NSTrackingArea.Options.mouseEnteredAndExited, NSTrackingArea.Options.activeInActiveApp],
+            options: [.activeAlways, .mouseEnteredAndExited],
             owner: self,
             userInfo: nil
         )

@@ -10,7 +10,8 @@
 //
 
 import XCTest
-import Kit
+import Cocoa
+@testable import Kit
 
 class KitTests: XCTestCase {
     func testIsNewestVersion_release() throws {
@@ -64,5 +65,164 @@ class KitTests: XCTestCase {
         XCTAssertEqual(Units(bytes: 500_000).getReadableSpeed(base: .byte, unit: "KB"), "500 KB/s")
         XCTAssertEqual(Units(bytes: 500_000).getReadableSpeed(base: .byte, unit: "MB"), "0.5 MB/s")
         XCTAssertEqual(Units(bytes: 500_000).getReadableSpeed(base: .bit, unit: "MB"), "4 Mb/s")
+    }
+
+    @MainActor
+    func testPopupMenuReplaysCachedValuesAndClosesReaders() {
+        let content = PopupTestView()
+        content.update(1)
+        content.update(2)
+        var visibility: [Bool] = []
+        let menu = PopupMenu(title: "CPU", module: .CPU, view: content) { visibility.append($0) }
+
+        menu.menuNeedsUpdate(menu)
+        menu.menuWillOpen(menu)
+        XCTAssertEqual(content.renderedValue, 2)
+        XCTAssertTrue(menu.isVisible)
+        XCTAssertEqual(visibility, [true])
+
+        menu.menuDidClose(menu)
+        XCTAssertFalse(menu.isVisible)
+        XCTAssertEqual(content.disappearCount, 1)
+        XCTAssertEqual(visibility, [true, false])
+    }
+
+    @MainActor
+    func testPopupMenuResizesContentWithoutResizingItsHostingWindow() throws {
+        let content = PopupTestView()
+        let menu = PopupMenu(title: "CPU", module: .CPU, view: content) { _ in }
+        let host = try XCTUnwrap(menu.items.first?.view)
+        let originalMenuHeight = menu.size.height
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(host)
+        let originalWindowSize = window.frame.size
+        let originalHostHeight = host.frame.height
+
+        content.setFrameSize(NSSize(width: Constants.Popup.width, height: 200))
+        content.sizeCallback?(content.frame.size)
+
+        XCTAssertEqual(host.frame.height - originalHostHeight, 100)
+        XCTAssertEqual(menu.size.height - originalMenuHeight, 100)
+        XCTAssertEqual(window.frame.size, originalWindowSize)
+        window.contentView = nil
+        window.close()
+    }
+
+    @MainActor
+    func testPopupMenuBoundsTallContentToTheScreen() throws {
+        let content = PopupTestView()
+        content.setFrameSize(NSSize(width: Constants.Popup.width, height: 10_000))
+        let menu = PopupMenu(title: "CPU", module: .CPU, view: content) { _ in }
+        menu.menuNeedsUpdate(menu)
+        let host = try XCTUnwrap(menu.items.first?.view)
+        let scrollView = try XCTUnwrap(host.subviews.compactMap { $0 as? NSScrollView }.first)
+        let screen = try XCTUnwrap(NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main)
+
+        XCTAssertLessThanOrEqual(menu.size.height, screen.visibleFrame.height)
+        XCTAssertGreaterThan(scrollView.documentView?.frame.height ?? 0, scrollView.contentSize.height)
+        XCTAssertTrue(scrollView.hasVerticalScroller)
+    }
+
+    @MainActor
+    func testPopupMenuKeepsTheHeaderButtons() throws {
+        let menu = PopupMenu(title: "CPU", module: .CPU, view: PopupTestView()) { _ in }
+        let host = try XCTUnwrap(menu.items.first?.view)
+        let header = try XCTUnwrap(host.subviews.first as? NSStackView)
+        let buttons = header.arrangedSubviews.compactMap { $0 as? NSButton }
+
+        XCTAssertEqual(menu.items.count, 1)
+        XCTAssertEqual(buttons.count, 2)
+        XCTAssertTrue(buttons.allSatisfy { !$0.isHidden })
+        XCTAssertEqual(buttons.first?.action, #selector(HeaderView.openActivityMonitor))
+        XCTAssertEqual(buttons.last?.action, #selector(HeaderView.openSettings))
+    }
+
+    @MainActor
+    func testDetachedPopupWindowPreservesItsDragAnchorAcrossResizing() {
+        let source = NSRect(x: -1800, y: -900, width: 280, height: 380)
+        let mouseDown = NSPoint(x: source.minX + 130, y: source.maxY - 18)
+        let anchor = PopupDragAnchor(frame: source, mouseLocation: mouseDown)
+        let content = NSView(frame: NSRect(origin: .zero, size: source.size))
+        let window = DetachedPopupWindow(title: "CPU", view: content, frame: source)
+        defer { window.close() }
+
+        window.setDragLocation(mouseDown, anchor: anchor)
+        XCTAssertEqual(window.frame, source)
+
+        window.setContentSize(NSSize(width: 280, height: 500))
+        let movedPointer = NSPoint(x: mouseDown.x + 240, y: mouseDown.y - 70)
+        window.setDragLocation(movedPointer, anchor: anchor)
+        XCTAssertEqual(window.frame.minX, source.minX + 240)
+        XCTAssertEqual(window.frame.maxY, source.maxY - 70)
+        XCTAssertEqual(window.frame.height, 500)
+        XCTAssertEqual(content.frame.size, window.frame.size)
+    }
+
+    @MainActor
+    func testPopupMenuKeepsReadersActiveWhenDetachingAndCanCancelTheTransfer() throws {
+        let content = PopupTestView()
+        var visibility: [Bool] = []
+        let menu = PopupMenu(title: "CPU", module: .CPU, view: content) { visibility.append($0) }
+        let host = try XCTUnwrap(menu.items.first?.view)
+        let header = try XCTUnwrap(host.subviews.first)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.frame.size),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        menu.menuWillOpen(menu)
+
+        let start = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: NSPoint(x: 100, y: host.frame.height - 10),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ))
+        let drag = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDragged, location: NSPoint(x: 110, y: host.frame.height - 10),
+            modifierFlags: [], timestamp: 1, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 1, clickCount: 1, pressure: 1
+        ))
+        header.mouseDown(with: start)
+        header.mouseDragged(with: drag)
+        menu.menuDidClose(menu)
+
+        XCTAssertTrue(menu.isDetached)
+        XCTAssertTrue(menu.isVisible)
+        XCTAssertEqual(visibility, [true])
+        XCTAssertEqual(content.disappearCount, 0)
+
+        menu.hide()
+        XCTAssertFalse(menu.isVisible)
+        XCTAssertEqual(visibility, [true, false])
+        XCTAssertEqual(content.disappearCount, 1)
+        window.contentView = nil
+        window.close()
+    }
+}
+
+private final class PopupTestView: PopupWrapper {
+    private let cache = PopupCache<Int>()
+    private(set) var renderedValue: Int?
+    private(set) var disappearCount = 0
+
+    init() {
+        super.init(.CPU, frame: NSRect(x: 0, y: 0, width: Constants.Popup.width, height: 100))
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(_ value: Int) {
+        self.cache.apply(value, visible: false) { self.renderedValue = $0 }
+    }
+
+    override func appear() {
+        self.replay(self.cache) { self.renderedValue = $0 }
+    }
+
+    override func disappear() {
+        self.disappearCount += 1
     }
 }

@@ -548,7 +548,7 @@ private class CalendarItemView: NSView {
         guard self.isHoverable else { return }
         self.addTrackingArea(NSTrackingArea(
             rect: self.bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp],
+            options: [.mouseEnteredAndExited, .activeAlways],
             owner: self,
             userInfo: nil
         ))

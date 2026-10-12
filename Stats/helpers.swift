@@ -376,7 +376,6 @@ extension AppDelegate {
         
         NotificationCenter.default.post(name: .togglePopup, object: nil, userInfo: [
             "module": module.name,
-            "widget": widget.type,
             "origin": window.frame.origin,
             "center": window.frame.width/2
         ])
