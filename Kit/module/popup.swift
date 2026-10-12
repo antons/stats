@@ -355,9 +355,18 @@ internal class PopupView: NSView {
     }
 }
 
+private final class HeaderButton: NSButtonWithPadding {
+    override var alignmentRectInsets: NSEdgeInsets {
+        var insets = super.alignmentRectInsets
+        insets.top += 3
+        insets.bottom -= 3
+        return insets
+    }
+}
+
 internal class HeaderView: NSStackView {
     private var titleView: NSTextField? = nil
-    private var activityButton: NSButton?
+    private var activityButton: NSButtonWithPadding?
     
     private var title: String = ""
     private var isCloseAction: Bool = false
@@ -376,13 +385,12 @@ internal class HeaderView: NSStackView {
         self.distribution = .gravityAreas
         self.spacing = 0
         
-        let activity = NSButtonWithPadding()
+        let activity = HeaderButton()
         activity.frame = CGRect(x: 0, y: 0, width: 24, height: self.frame.height)
-        activity.horizontalPadding = activity.frame.height - 24
         activity.bezelStyle = .regularSquare
         activity.translatesAutoresizingMaskIntoConstraints = false
         activity.imageScaling = .scaleNone
-        activity.contentTintColor = .lightGray
+        activity.contentTintColor = .secondaryLabelColor
         activity.isBordered = false
         activity.target = self
         activity.focusRingType = .none
@@ -402,29 +410,23 @@ internal class HeaderView: NSStackView {
         title.stringValue = ""
         self.titleView = title
         
-        let settings = NSButtonWithPadding()
+        let settings = HeaderButton()
         settings.frame = CGRect(x: 0, y: 0, width: 24, height: self.frame.height)
-        settings.horizontalPadding = activity.frame.height - 24
+        settings.horizontalPadding = Constants.Popup.headerHeight - 24 + (Constants.Popup.margins - 3) * 2
         settings.bezelStyle = .regularSquare
         settings.translatesAutoresizingMaskIntoConstraints = false
         settings.imageScaling = .scaleNone
-        settings.image = iconFromSymbol(name: "command", scale: .large)
-        settings.contentTintColor = .lightGray
+        settings.image = self.symbolImage("command")
+        settings.contentTintColor = .secondaryLabelColor
         settings.isBordered = false
         settings.action = #selector(self.openSettings)
         settings.target = self
         settings.toolTip = localizedString("Open module")
         settings.focusRingType = .none
         
-        self.addArrangedSubview(activity)
-        self.addArrangedSubview(title)
-        self.addArrangedSubview(settings)
-        
-        NSLayoutConstraint.activate([
-            title.widthAnchor.constraint(
-                equalToConstant: self.frame.width - activity.intrinsicContentSize.width - settings.intrinsicContentSize.width
-            )
-        ])
+        self.addView(activity, in: .leading)
+        self.addView(title, in: .center)
+        self.addView(settings, in: .trailing)
     }
     
     required init?(coder: NSCoder) {
@@ -435,31 +437,42 @@ internal class HeaderView: NSStackView {
         self.title = newTitle
         self.titleView?.stringValue = localizedString(newTitle)
     }
-    
+
+    private func symbolImage(_ name: String, pointSize: CGFloat = 16, paletteColors: [NSColor]? = nil) -> NSImage? {
+        var configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .bold)
+        if let colors = paletteColors {
+            configuration = configuration.applying(NSImage.SymbolConfiguration(paletteColors: colors))
+        }
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+    }
+
     private func setupActionButton() {
         guard let button = self.activityButton else { return }
+        button.contentTintColor = .secondaryLabelColor
+        button.horizontalPadding = Constants.Popup.headerHeight - 24 + (self.isCloseAction ? 0 : (Constants.Popup.margins - 3) * 2)
         
         if self.isCloseAction {
             button.action = #selector(self.closePopup)
-            button.image = iconFromSymbol(name: "xmark.circle.fill", scale: .xlarge)
+            button.image = self.symbolImage("xmark.circle.fill", pointSize: 22, paletteColors: [.secondaryLabelColor, .quaternaryLabelColor])
+            button.contentTintColor = nil
             button.toolTip = localizedString("Close")
             return
         }
         
         if self.module == .clock {
             button.action = #selector(self.openCalendar)
-            button.image = iconFromSymbol(name: "calendar", scale: .large)
+            button.image = self.symbolImage("calendar")
             button.toolTip = localizedString("Open Calendar")
             return
         } else if self.module == .remote {
             button.action = #selector(self.openSystemStats)
-            button.image = iconFromSymbol(name: "globe", scale: .large)
+            button.image = self.symbolImage("globe")
             button.toolTip = localizedString("Open System Stats")
             return
         }
         
         button.action = #selector(self.openActivityMonitor)
-        button.image = iconFromSymbol(name: "chart.bar.fill", scale: .medium)
+        button.image = self.symbolImage("waveform.path.ecg")
         button.toolTip = localizedString("Open Activity Monitor")
     }
     
