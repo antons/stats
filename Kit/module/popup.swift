@@ -87,6 +87,7 @@ public final class PopupMenu: NSMenu, NSMenuDelegate, NSWindowDelegate {
 
     private struct Detachment {
         let frame: NSRect
+        let contentInsets: NSEdgeInsets
         let anchor: PopupDragAnchor
         var mouseLocation: NSPoint
     }
@@ -125,7 +126,7 @@ public final class PopupMenu: NSMenu, NSMenuDelegate, NSWindowDelegate {
         self.popup.sizeCallback = { [weak self] in
             guard let self = self, let window = self.detachedWindow else { return }
             let top = window.frame.maxY
-            window.setContentSize(self.popup.frame.size)
+            window.setPopupContentSize(self.popup.frame.size)
             window.setFrameOrigin(NSPoint(x: window.frame.minX, y: top - window.frame.height))
         }
 
@@ -223,7 +224,8 @@ public final class PopupMenu: NSMenu, NSMenuDelegate, NSWindowDelegate {
     }
 
     public func windowDidChangeScreen(_ notification: Notification) {
-        self.popup.prepare(screen: self.detachedWindow?.screen, reservedHeight: 0)
+        guard let window = self.detachedWindow else { return }
+        self.popup.prepare(screen: window.screen, reservedHeight: window.contentInsets.top + window.contentInsets.bottom)
     }
 
     private func setReadersVisible(_ visible: Bool) {
@@ -239,10 +241,18 @@ public final class PopupMenu: NSMenu, NSMenuDelegate, NSWindowDelegate {
             return
         }
         guard self.presentation == .menu, let window = self.popup.window else { return }
-        let frame = window.convertToScreen(self.popup.convert(self.popup.bounds, to: nil))
+        let contentFrame = window.convertToScreen(self.popup.convert(self.popup.bounds, to: nil))
+        let frame = window.frame
+        let contentInsets = NSEdgeInsets(
+            top: max(0, frame.maxY - contentFrame.maxY),
+            left: max(0, contentFrame.minX - frame.minX),
+            bottom: max(0, contentFrame.minY - frame.minY),
+            right: max(0, frame.maxX - contentFrame.maxX)
+        )
         let anchor = PopupDragAnchor(frame: frame, mouseLocation: mouseLocation)
         self.detachment = Detachment(
             frame: frame,
+            contentInsets: contentInsets,
             anchor: anchor,
             mouseLocation: NSEvent.mouseLocation
         )
@@ -277,12 +287,13 @@ public final class PopupMenu: NSMenu, NSMenuDelegate, NSWindowDelegate {
         self.contentItem.view = nil
         self.popup.header.setDetached(true)
 
-        let window = DetachedPopupWindow(title: self.title, view: self.popup, frame: detachment.frame)
+        let window = DetachedPopupWindow(title: self.title, view: self.popup, frame: detachment.frame,
+                                         contentInsets: detachment.contentInsets)
         window.delegate = self
         self.detachedWindow = window
         self.presentation = .window
-        self.popup.prepare(screen: window.screen, reservedHeight: 0)
-        window.setContentSize(self.popup.frame.size)
+        self.popup.prepare(screen: window.screen, reservedHeight: window.contentInsets.top + window.contentInsets.bottom)
+        window.setPopupContentSize(self.popup.frame.size)
         let mouseLocation = NSEvent.pressedMouseButtons & 1 != 0 ? NSEvent.mouseLocation : detachment.mouseLocation
         window.setDragLocation(mouseLocation, anchor: detachment.anchor)
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -308,9 +319,12 @@ internal struct PopupDragAnchor {
 }
 
 internal final class DetachedPopupWindow: NSWindow {
+    let contentInsets: NSEdgeInsets
+
     override var canBecomeKey: Bool { true }
 
-    init(title: String, view: NSView, frame: NSRect) {
+    init(title: String, view: NSView, frame: NSRect, contentInsets: NSEdgeInsets) {
+        self.contentInsets = contentInsets
         super.init(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
         self.title = title
         self.isOpaque = false
@@ -318,17 +332,30 @@ internal final class DetachedPopupWindow: NSWindow {
         self.hasShadow = true
         self.isReleasedWhenClosed = false
         self.collectionBehavior = .moveToActiveSpace
-        view.autoresizingMask = [.width, .height]
+        let content = DetachedPopupContentView(frame: NSRect(origin: .zero, size: frame.size),
+                                               view: view, contentInsets: contentInsets)
+        content.autoresizingMask = [.width, .height]
 
-        let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: frame.size))
-        effect.material = .popover
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = Constants.Popup.radius
-        effect.layer?.masksToBounds = true
-        effect.addSubview(view)
-        self.contentView = effect
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: NSRect(origin: .zero, size: frame.size))
+            glass.style = .regular
+            glass.cornerRadius = 12
+            glass.wantsLayer = true
+            glass.layer?.cornerRadius = glass.cornerRadius
+            glass.layer?.masksToBounds = true
+            glass.contentView = content
+            self.contentView = glass
+        } else {
+            let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: frame.size))
+            effect.material = .menu
+            effect.blendingMode = .behindWindow
+            effect.state = .active
+            effect.wantsLayer = true
+            effect.layer?.cornerRadius = Constants.Popup.radius
+            effect.layer?.masksToBounds = true
+            effect.addSubview(content)
+            self.contentView = effect
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -339,6 +366,37 @@ internal final class DetachedPopupWindow: NSWindow {
         self.setFrameOrigin(anchor.origin(at: location, size: self.frame.size))
     }
 
+    func setPopupContentSize(_ size: NSSize) {
+        self.setContentSize(NSSize(width: size.width + self.contentInsets.left + self.contentInsets.right,
+                                   height: size.height + self.contentInsets.top + self.contentInsets.bottom))
+    }
+}
+
+private final class DetachedPopupContentView: NSView {
+    private let popup: NSView
+    private let contentInsets: NSEdgeInsets
+
+    init(frame: NSRect, view: NSView, contentInsets: NSEdgeInsets) {
+        self.popup = view
+        self.contentInsets = contentInsets
+        super.init(frame: frame)
+        view.autoresizingMask = []
+        self.addSubview(view)
+        self.resizeSubviews(withOldSize: frame.size)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        self.popup.frame = NSRect(
+            x: self.contentInsets.left,
+            y: self.contentInsets.bottom,
+            width: max(0, self.bounds.width - self.contentInsets.left - self.contentInsets.right),
+            height: max(0, self.bounds.height - self.contentInsets.top - self.contentInsets.bottom)
+        )
+    }
 }
 
 internal class PopupView: NSView {

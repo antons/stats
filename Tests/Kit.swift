@@ -145,19 +145,45 @@ class KitTests: XCTestCase {
         let mouseDown = NSPoint(x: source.minX + 130, y: source.maxY - 18)
         let anchor = PopupDragAnchor(frame: source, mouseLocation: mouseDown)
         let content = NSView(frame: NSRect(origin: .zero, size: source.size))
-        let window = DetachedPopupWindow(title: "CPU", view: content, frame: source)
+        let insets = NSEdgeInsets(top: 5, left: 0, bottom: 5, right: 0)
+        let window = DetachedPopupWindow(title: "CPU", view: content, frame: source, contentInsets: insets)
         defer { window.close() }
 
         window.setDragLocation(mouseDown, anchor: anchor)
         XCTAssertEqual(window.frame, source)
+        XCTAssertEqual(content.frame.origin, NSPoint(x: 0, y: 5))
+        XCTAssertEqual(content.frame.height, source.height - 10)
 
-        window.setContentSize(NSSize(width: 280, height: 500))
+        window.setPopupContentSize(NSSize(width: 280, height: 500))
         let movedPointer = NSPoint(x: mouseDown.x + 240, y: mouseDown.y - 70)
         window.setDragLocation(movedPointer, anchor: anchor)
         XCTAssertEqual(window.frame.minX, source.minX + 240)
         XCTAssertEqual(window.frame.maxY, source.maxY - 70)
-        XCTAssertEqual(window.frame.height, 500)
-        XCTAssertEqual(content.frame.size, window.frame.size)
+        XCTAssertEqual(window.frame.height, 510)
+        XCTAssertEqual(content.frame.origin, NSPoint(x: 0, y: 5))
+        XCTAssertEqual(content.frame.size, NSSize(width: 280, height: 500))
+    }
+
+    @MainActor
+    func testDetachedPopupWindowUsesATransparentEffectBackground() throws {
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 300))
+        let window = DetachedPopupWindow(title: "CPU", view: content, frame: content.frame, contentInsets: NSEdgeInsets())
+        defer { window.close() }
+
+        XCTAssertFalse(window.isOpaque)
+        XCTAssertEqual(window.backgroundColor, .clear)
+        XCTAssertTrue(window.hasShadow)
+        XCTAssertTrue(window.canBecomeKey)
+        if #available(macOS 26.0, *) {
+            let glass = try XCTUnwrap(window.contentView as? NSGlassEffectView)
+            XCTAssertTrue(content.superview === glass.contentView)
+            XCTAssertGreaterThan(glass.cornerRadius, 0)
+        } else {
+            let effect = try XCTUnwrap(window.contentView as? NSVisualEffectView)
+            XCTAssertTrue(content.superview?.superview === effect)
+            XCTAssertEqual(effect.material, .menu)
+            XCTAssertEqual(effect.blendingMode, .behindWindow)
+        }
     }
 
     @MainActor
