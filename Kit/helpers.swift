@@ -410,15 +410,13 @@ public func separatorView(_ title: String, origin: NSPoint = NSPoint(x: 0, y: 0)
     labelView.setContentHuggingPriority(.required, for: .horizontal)
     labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
     
-    let leftLine: NSView = NSView()
+    let leftLine = NSBox()
+    leftLine.boxType = .separator
     leftLine.translatesAutoresizingMaskIntoConstraints = false
-    leftLine.wantsLayer = true
-    leftLine.layer?.backgroundColor = NSColor.separatorColor.cgColor
     
-    let rightLine: NSView = NSView()
+    let rightLine = NSBox()
+    rightLine.boxType = .separator
     rightLine.translatesAutoresizingMaskIntoConstraints = false
-    rightLine.wantsLayer = true
-    rightLine.layer?.backgroundColor = NSColor.separatorColor.cgColor
     
     view.addSubview(leftLine)
     view.addSubview(labelView)
@@ -2572,9 +2570,8 @@ public class SeparatorView: NSStackView {
     }
     
     private func line() -> NSView {
-        let view: NSView = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        let view = NSBox()
+        view.boxType = .separator
         view.setContentHuggingPriority(.defaultLow, for: .horizontal)
         view.heightAnchor.constraint(equalToConstant: 1).isActive = true
         return view
