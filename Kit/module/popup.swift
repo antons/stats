@@ -362,6 +362,27 @@ internal final class DetachedPopupWindow: NSWindow {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func cancelOperation(_ sender: Any?) {
+        self.close()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            self.cancelOperation(event)
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if event.type == .keyDown, modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
+            self.close()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     func setDragLocation(_ location: NSPoint, anchor: PopupDragAnchor) {
         self.setFrameOrigin(anchor.origin(at: location, size: self.frame.size))
     }

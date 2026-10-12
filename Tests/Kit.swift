@@ -165,6 +165,66 @@ class KitTests: XCTestCase {
     }
 
     @MainActor
+    func testDetachedPopupWindowClosesWithEscapeAndCommandW() throws {
+        let shortcuts: [(String, UInt16, NSEvent.ModifierFlags)] = [("\u{1b}", 53, []), ("w", 13, .command)]
+        for (characters, keyCode, modifiers) in shortcuts {
+            let content = PopupTestView()
+            var visibility: [Bool] = []
+            let menu = PopupMenu(title: "CPU", module: .CPU, view: content) { visibility.append($0) }
+            let host = try XCTUnwrap(menu.items.first?.view)
+            let window = DetachedPopupWindow(title: "CPU", view: host, frame: host.frame, contentInsets: NSEdgeInsets())
+            window.delegate = menu
+            defer {
+                window.delegate = nil
+                window.close()
+            }
+            menu.menuWillOpen(menu)
+
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode
+            ))
+            if modifiers == .command {
+                XCTAssertTrue(window.performKeyEquivalent(with: event))
+            } else {
+                window.sendEvent(event)
+            }
+
+            XCTAssertFalse(menu.isVisible)
+            XCTAssertEqual(visibility, [true, false])
+            XCTAssertEqual(content.disappearCount, 1)
+        }
+    }
+
+    @MainActor
+    func testDetachedPopupWindowLeavesOtherKeyEquivalentsAvailable() throws {
+        let content = PopupTestView()
+        var visibility: [Bool] = []
+        let menu = PopupMenu(title: "CPU", module: .CPU, view: content) { visibility.append($0) }
+        let host = try XCTUnwrap(menu.items.first?.view)
+        let window = DetachedPopupWindow(title: "CPU", view: host, frame: host.frame, contentInsets: NSEdgeInsets())
+        window.delegate = menu
+        defer {
+            window.delegate = nil
+            window.close()
+        }
+        menu.menuWillOpen(menu)
+
+        for modifiers: NSEvent.ModifierFlags in [[], [.command, .shift], [.command, .option], [.command, .control]] {
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "w",
+                charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13
+            ))
+            XCTAssertFalse(window.performKeyEquivalent(with: event))
+            XCTAssertTrue(menu.isVisible)
+            XCTAssertEqual(visibility, [true])
+            XCTAssertEqual(content.disappearCount, 0)
+        }
+    }
+
+    @MainActor
     func testDetachedPopupWindowUsesATransparentEffectBackground() throws {
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 300))
         let window = DetachedPopupWindow(title: "CPU", view: content, frame: content.frame, contentInsets: NSEdgeInsets())
